@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from datasets import SIDDDataset, UDCDatasetPair, GoProDatasetPair
+from regulariser import KLD_INC
 import utils
 from configure import Config
 import utils
@@ -72,7 +73,10 @@ def train(config):
     else :
         NAF_model = define_models(config, device=device)
 
-    optimizer = torch.optim.AdamW(params=NAF_model.parameters(), lr=config.lr, betas=[0.9, 0.9])
+    if config.mode == "Prior_NAFNet":
+        optimizer = torch.optim.AdamW(params=(list(vae.parameters()) + list(NAF_model.parameters())), lr=config.lr, betas=[0.9, 0.9])
+    else :
+        optimizer = torch.optim.AdamW(params=NAF_model.parameters(), lr=config.lr, betas=[0.9, 0.9])
     # 15를 곱해주는 이유 : UDCDataset 기준, 1epoch당 15 iteration이 돌아갔기 때문.
 
     cosine_annealing_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.iteration, eta_min=1e-7, last_epoch=-1 , verbose=False)
@@ -90,11 +94,13 @@ def train(config):
     dataloader = DataLoader(dataset=dataset, batch_size=config.batch_size, shuffle=True)
     all_loss_dict = None
 
+    if config.alpha > 0 :
+        reg = KLD_INC()
 
     if config.mode == "Prior_NAFNet":
         if config.start_epoch > config.model_save_period :
             ep = config.start_epoch
-            load_path = os.path.join(config.save_root, f"{config.mode}_{config.model_type}_NAFNet_{ep}")
+            load_path = os.path.join(config.save_root, f"{config.mode}{config.latent_dim}_alpha{config.alpha}_beta{config.kld_weight}_{config.start_epoch}.pt")
             [NAF_model, vae], all_loss_dict, optimizer, cosine_annealing_scheduler = utils.load_models(load_path, [NAF_model, vae], optimizer, cosine_annealing_scheduler)
 
     else :
@@ -138,14 +144,18 @@ def train(config):
                 y_prime = vae.decode(condition)
 
                 # P(x|y,c)
-                x_prime = NAF_model(y, condition)
+                x_prime = NAF_model([y, condition])
 
                 edge_loss = None
                 psnr_loss = -lossfunc(x_prime, x)
 
-                vae_loss_dict = vae.loss_function(y_prime, y, mu, log_var, config.kld_weight)
-                vae_loss, vae_recon, kld = vae_loss_dict['loss'], vae_loss_dict["Reconstruction_Loss"], vae_loss_dict['KLD']
-
+                if config.alpha <= 0:
+                    vae_loss_dict = vae.loss_function(y_prime, y, mu, log_var, config.kld_weight)
+                    vae_loss, vae_recon, kld = vae_loss_dict['loss'], vae_loss_dict["Reconstruction_Loss"], vae_loss_dict['KLD']
+                else :
+                    vae_loss_dict = vae.d_loss_function(y_prime, y, mu, log_var, config.kld_weight, config.alpha, reg)
+                    vae_loss, vae_recon, kld, struc = vae_loss_dict['loss'], vae_loss_dict["Reconstruction_Loss"], \
+                    vae_loss_dict['KLD'], vae_loss_dict['Structure Divergence'],
                 tot_loss = psnr_loss + vae_loss
 
             else :
@@ -175,11 +185,19 @@ def train(config):
 
         this_PSNR_Loss = np.mean(loss_dict["PSNR Loss"])
         this_loss = np.mean(loss_dict['Total Loss'])
-        if config.edge_information:
-            this_Edge_Loss = np.mean(loss_dict["Edge Loss"])
-            print(f"Total Loss : {this_loss}\t PSNR Loss : {this_PSNR_Loss}\t Edge Loss : {this_Edge_Loss}")
-        else:
-            print(f"Total Loss : {this_loss}")
+
+        if config.mode == "Prior_NAFNet":
+            if config.edge_information:
+                this_Edge_Loss = np.mean(loss_dict["Edge Loss"])
+                print(f"Total Loss : {this_loss}\t PSNR Loss : {this_PSNR_Loss}\t Edge Loss : {this_Edge_Loss}")
+            else:
+                print(f"Total Loss : {this_loss}\t PSNR Loss : {this_PSNR_Loss}\t")
+        else :
+            if config.edge_information:
+                this_Edge_Loss = np.mean(loss_dict["Edge Loss"])
+                print(f"Total Loss : {this_loss}\t PSNR Loss : {this_PSNR_Loss}\t Edge Loss : {this_Edge_Loss}")
+            else:
+                print(f"Total Loss : {this_loss}")
 
         all_loss_dict["Total Loss"].append(this_loss)
         all_loss_dict["PSNR Loss"].append(this_PSNR_Loss)
@@ -187,21 +205,20 @@ def train(config):
         if config.edge_information:
             all_loss_dict["Edge Loss"].append(this_Edge_Loss)
 
-
         if config.mode == "Prior_NAFNet":
             if (ep > 0) and ((ep + 1) % config.model_save_period == 0):
-                utils.save_models(config.save_root, config.mode, config.model_type, [NAF_model, vae], optimizer,
+                utils.save_models(config, [NAF_model, vae], optimizer,
                                   cosine_annealing_scheduler, all_loss_dict, ep + 1)
 
             if this_iter >= config.iteration:
-                utils.save_models(config.save_root, config.mode, config.model_type, [NAF_model, vae], optimizer,
+                utils.save_models(config, [NAF_model, vae], optimizer,
                                   cosine_annealing_scheduler, all_loss_dict, ep + 1)
                 break
 
         else :
             if (ep > 0) and ((ep + 1) % config.model_save_period == 0) :
-                utils.save_models(config.save_root, config.mode, config.model_type, NAF_model, optimizer, cosine_annealing_scheduler, all_loss_dict, ep+1)
+                utils.save_models(config, NAF_model, optimizer, cosine_annealing_scheduler, all_loss_dict, ep+1)
 
             if this_iter >= config.iteration:
-                utils.save_models(config.save_root, config.mode, config.model_type, NAF_model, optimizer, cosine_annealing_scheduler, all_loss_dict, ep+1)
+                utils.save_models(config, NAF_model, optimizer, cosine_annealing_scheduler, all_loss_dict, ep+1)
                 break

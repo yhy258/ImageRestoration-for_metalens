@@ -93,23 +93,36 @@ def pnsr_ssim_eval(Xs, Ys):
 def prepare_and_save_images(config, dataloader):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     # device = 'cpu'
-    model = utils.define_models(config, device)
+    model = utils.define_models(config, device, True)
     model, loss_info, _, _ = utils.load_models(config.model_load_path, model)
-
-    model.eval()
+    if config.mode == "Prior_NAFNet":
+        model, vae = model
+        vae.eval()
+        model.eval()
+    else :
+        model.eval()
 
     gt_samples = []
     recon_samples = []
 
-    ep = int(config.model_load_path.split('/')[-1][7:-3])
+    ep = int(config.model_load_path.split('/')[-1][7+6+2:-3])
 
     print("LOG : Save Image Data.npy")
     with torch.no_grad():
         for i, (x, y) in enumerate(dataloader):
             if i * config.batch_size > config.sample_num:
                 break
+
             x, y = x.to(device), y.to(device)
-            x_prime = model(y)
+            if config.mode == "Prior_NAFNet":
+                mu, log_var = vae.encode(y)
+                condition = vae.reparameterize(mu, log_var)
+
+                # P(x|y,c)
+                x_prime = model([y, condition])
+
+            else :
+                x_prime = model(y)
 
             gt_samples.append(x.detach().cpu())
             recon_samples.append(x_prime.detach().cpu())

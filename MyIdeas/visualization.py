@@ -12,9 +12,14 @@ def visualization(config, nums=4):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     # device = 'cpu'
     model = utils.define_models(config, device)
-    model, loss_info = utils.load_models(config.model_load_path, model)
+    model, loss_info, _, _ = utils.load_models(config.model_load_path, model)
 
-    model.eval()
+    if config.mode == "Prior_NAFNet":
+        model, vae = model
+        model.eval()
+        vae.eval()
+    else :
+        model.eval()
 
     transform = transforms.Compose([
         transforms.Resize((280, 280)),
@@ -33,7 +38,14 @@ def visualization(config, nums=4):
     x = x.to(device)
     y = y.to(device)
 
-    x_prime = model(y)
+    if config.mode == "Prior_NAFNet":
+        mu, log_var = vae.encode(y)
+        condition = vae.reparameterize(mu, log_var)
+
+        # P(x|y,c)
+        x_prime = model([y, condition])
+    else :
+        x_prime = model(y)
 
     plt.figure(figsize=(20,20))
 

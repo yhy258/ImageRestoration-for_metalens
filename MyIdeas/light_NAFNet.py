@@ -157,7 +157,7 @@ class Light_NAFNet(nn.Module):
         return x
 
 
-class NAFNetLocal(Local_Base, Light_NAFNet):
+class LightNAFNetLocal(Local_Base, Light_NAFNet):
     def __init__(self, *args, train_size=(1, 3, 256, 256), fast_imp=False, **kwargs):
         Local_Base.__init__(self)
         Light_NAFNet.__init__(self, *args, **kwargs)
@@ -189,15 +189,15 @@ if __name__ == '__main__':
 
     inp_shape = (3, 256, 256)
 
-    from ptflops import get_model_complexity_info
-
-    macs, params = get_model_complexity_info(net, inp_shape, verbose=False, print_per_layer_stat=False)
-
-    params = float(params[:-3])
-    macs = float(macs[:-4])
-
-    print(macs, params)
-
-    img = torch.randn(1, 3, 256, 256)
-    print(net(img).shape)
-
+    # from ptflops import get_model_complexity_info
+    #
+    # macs, params = get_model_complexity_info(net, inp_shape, verbose=False, print_per_layer_stat=False)
+    #
+    # params = float(params[:-3])
+    # macs = float(macs[:-4])
+    #
+    # print(macs, params)
+    #
+    # img = torch.randn(1, 3, 256, 256)
+    # print(net(img).shape)
+    #

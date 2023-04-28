@@ -135,12 +135,14 @@ class NAFNet(nn.Module):
             _, _, H, W = im.shape
             con = F.interpolate(con, size=(H, W), mode='bilinear')
             inp = torch.cat([im, con], dim=1)
+
         else:
             _, _, H, W = inp.shape
-            inp = self.check_image_size(inp)
+        inp = self.check_image_size(inp)
 
         x = self.intro(inp)
-
+        if self.mode == "Prior_NAFNet":
+            inp = im
         encs = []
 
         for encoder, down in zip(self.encoders, self.downs):
@@ -169,7 +171,7 @@ class NAFNet(nn.Module):
 
 
 class NAFNetLocal(Local_Base, NAFNet):
-    def __init__(self, *args, train_size=(1, 3, 256, 256), fast_imp=False, **kwargs):
+    def __init__(self, *args, train_size=[1, 3, 256, 256], prior=4, fast_imp=False, **kwargs):
         Local_Base.__init__(self)
         NAFNet.__init__(self, *args, **kwargs)
 
@@ -178,7 +180,7 @@ class NAFNetLocal(Local_Base, NAFNet):
 
         self.eval()
         with torch.no_grad():
-            self.convert(base_size=base_size, train_size=train_size, fast_imp=fast_imp)
+            self.convert(base_size=base_size, train_size=train_size, prior=prior, fast_imp=fast_imp)
 
 
 if __name__ == '__main__':
@@ -200,14 +202,14 @@ if __name__ == '__main__':
 
     inp_shape = (3, 256, 256)
 
-    from ptflops import get_model_complexity_info
-
-    macs, params = get_model_complexity_info(net, inp_shape, verbose=False, print_per_layer_stat=False)
-
-    params = float(params[:-3])
-    macs = float(macs[:-4])
-
-    print(macs, params)
-
-    img = torch.randn(1, 3, 256, 256)
-    print(net(img).shape)
+    # from ptflops import get_model_complexity_info
+    #
+    # macs, params = get_model_complexity_info(net, inp_shape, verbose=False, print_per_layer_stat=False)
+    #
+    # params = float(params[:-3])
+    # macs = float(macs[:-4])
+    #
+    # print(macs, params)
+    #
+    # img = torch.randn(1, 3, 256, 256)
+    # print(net(img).shape)
